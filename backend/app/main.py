@@ -2,12 +2,29 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers import categories, concepts, progress, quiz, wrong_answers
+from app.routers import (
+    analytics,
+    categories,
+    concepts,
+    progress,
+    quiz,
+    quiz_game,
+    review,
+    search,
+    study,
+    transfer,
+    wrong_answers,
+)
 
 app = FastAPI(
     title="Backend Lab API",
-    description="백엔드 핵심 개념 학습 사이트 — 개념·퀴즈·오답노트 CRUD",
-    version="1.0.0",
+    description=(
+        "백엔드 핵심 개념 학습 API — "
+        "개념 카드 · 퀴즈 게임 · 오답노트 · 복습 큐 · 학습 분석 · 검색 · 백업"
+    ),
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
 app.add_middleware(
@@ -26,11 +43,22 @@ def on_startup() -> None:
 
 @app.get("/api/health", tags=["health"])
 def health() -> dict:
-    return {"status": "ok"}
+    return {"status": "ok", "version": "2.0.0"}
 
 
+# ── 콘텐츠 CRUD ─────────────────────────────────────────────
 app.include_router(categories.router)
 app.include_router(concepts.router)
 app.include_router(quiz.router)
 app.include_router(wrong_answers.router)
 app.include_router(progress.router)
+
+# ── 학습 플로우 ─────────────────────────────────────────────
+app.include_router(study.router)
+app.include_router(quiz_game.router)
+app.include_router(review.router)
+
+# ── 분석 · 검색 · 백업 ─────────────────────────────────────
+app.include_router(analytics.router)
+app.include_router(search.router)
+app.include_router(transfer.router)

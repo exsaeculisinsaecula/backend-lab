@@ -86,3 +86,73 @@ class StudyProgress(Base):
     date: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)  # YYYY-MM-DD
     answered: Mapped[int] = mapped_column(Integer, default=0)
     correct: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class StudySession(Base):
+    """플래시카드 학습 세션"""
+
+    __tablename__ = "study_sessions"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    filter_json: Mapped[str] = mapped_column(Text, default="{}")
+    concept_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    current_index: Mapped[int] = mapped_column(Integer, default=0)
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    answers: Mapped[list["StudySessionAnswer"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+
+class StudySessionAnswer(Base):
+    __tablename__ = "study_session_answers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("study_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    concept_id: Mapped[str] = mapped_column(
+        ForeignKey("concepts.id", ondelete="CASCADE"), nullable=False
+    )
+    is_known: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    session: Mapped[StudySession] = relationship(back_populates="answers")
+
+
+class QuizSession(Base):
+    """퀴즈 게임 세션"""
+
+    __tablename__ = "quiz_sessions"
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    source: Mapped[str] = mapped_column(String(20), default="generated")  # generated | db | wrong
+    filter_json: Mapped[str] = mapped_column(Text, default="{}")
+    questions_json: Mapped[str] = mapped_column(Text, default="[]")
+    current_index: Mapped[int] = mapped_column(Integer, default=0)
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    is_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    answers: Mapped[list["QuizSessionAnswer"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+
+
+class QuizSessionAnswer(Base):
+    __tablename__ = "quiz_session_answers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("quiz_sessions.id", ondelete="CASCADE"), nullable=False
+    )
+    question_key: Mapped[str] = mapped_column(String(80), default="")
+    my_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    correct_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    session: Mapped[QuizSession] = relationship(back_populates="answers")
