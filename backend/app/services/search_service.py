@@ -1,16 +1,12 @@
 from __future__ import annotations
 
-import json
-
 from sqlalchemy.orm import Session
 
-from app.models import Concept, QuizQuestion, WrongAnswer
+from app.models import Concept, QuizQuestion, User, WrongAnswer
 from app.schemas.study import SearchHit, SearchOut
 
 
 class SearchService:
-    """개념 · 퀴즈 · 오답 통합 검색"""
-
     def __init__(self, db: Session) -> None:
         self.db = db
 
@@ -24,13 +20,12 @@ class SearchService:
             return 2.0
         if q in t:
             return 1.0
-        # 토큰 일부 일치
         tokens = [x for x in q.split() if x]
         if tokens and all(tok in t for tok in tokens):
             return 0.5
         return 0.0
 
-    def search(self, q: str, *, limit: int = 20) -> SearchOut:
+    def search(self, user: User, q: str, *, limit: int = 20) -> SearchOut:
         query = (q or "").strip()
         if not query:
             return SearchOut(query=q, total=0, hits=[])
@@ -68,7 +63,7 @@ class SearchService:
                     )
                 )
 
-        for w in self.db.query(WrongAnswer).all():
+        for w in self.db.query(WrongAnswer).filter(WrongAnswer.user_id == user.id).all():
             s = self._score(w.question, query) * 0.7
             if s > 0:
                 hits.append(

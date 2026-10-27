@@ -1,4 +1,5 @@
 from app.services.analytics_service import AnalyticsService
+from app.services.auth_service import AuthService
 from app.services.category_service import CategoryService
 from app.services.concept_service import ConceptService
 from app.services.progress_service import ProgressService
@@ -11,6 +12,7 @@ from app.services.wrong_answer_service import WrongAnswerService
 
 __all__ = [
     "AnalyticsService",
+    "AuthService",
     "CategoryService",
     "ConceptService",
     "ProgressService",

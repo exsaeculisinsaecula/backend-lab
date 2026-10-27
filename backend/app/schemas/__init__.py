@@ -1,3 +1,4 @@
+from app.schemas.auth import AuthMessageOut, LoginIn, RegisterIn, TokenOut, UserOut
 from app.schemas.category import (
     CategoryCreate,
     CategoryOut,
@@ -49,6 +50,7 @@ from app.schemas.study import (
 )
 
 __all__ = [
+    "AuthMessageOut",
     "CategoryCreate",
     "CategoryOut",
     "CategoryProgress",
@@ -60,6 +62,7 @@ __all__ = [
     "ExportOut",
     "ImportIn",
     "ImportResult",
+    "LoginIn",
     "MessageOut",
     "ProgressOut",
     "ProgressUpsert",
@@ -72,6 +75,7 @@ __all__ = [
     "QuizSessionCreate",
     "QuizSessionOut",
     "QuizUpdate",
+    "RegisterIn",
     "ReviewCompleteIn",
     "ReviewQueueItem",
     "SearchHit",
@@ -82,6 +86,8 @@ __all__ = [
     "StudySessionCreate",
     "StudySessionOut",
     "TimelineItem",
+    "TokenOut",
+    "UserOut",
     "WeakArea",
     "WrongAnswerCreate",
     "WrongAnswerOut",

@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Backend Lab — API Tester</title>
+  <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/@fontsource/jetbrains-mono@5.0.0/index.min.css" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a30;
+      --soft: #182238;
+      --border: rgba(148, 163, 205, 0.16);
+      --text: #e8edf8;
+      --muted: #8b97b3;
+      --primary: #6c8cff;
+      --ok: #2fd48c;
+      --warn: #ffb347;
+      --err: #ff6b81;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+      --sans: "Pretendard", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background:
+        radial-gradient(1000px 500px at 0% -10%, rgba(76,110,245,.18), transparent 50%),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .wrap {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      gap: 16px;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    h1 { font-size: 1.2rem; margin: 0 0 4px; letter-spacing: -.03em; }
+    .sub { color: var(--muted); font-size: .85rem; margin: 0 0 16px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+    }
+    .panel + .panel { margin-top: 12px; }
+    .panel h2 {
+      font-size: .9rem;
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    label {
+      display: block;
+      font-size: .78rem;
+      color: var(--muted);
+      margin: 0 0 6px;
+    }
+    input, select, textarea, button {
+      font: inherit;
+      color: inherit;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--soft);
+      padding: 10px 12px;
+      width: 100%;
+    }
+    textarea {
+      font-family: var(--mono);
+      font-size: .82rem;
+      min-height: 120px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+    input:focus, select:focus, textarea:focus, button:focus {
+      outline: 2px solid var(--primary);
+      outline-offset: 1px;
+    }
+    .row { display: grid; grid-template-columns: 90px 1fr; gap: 8px; }
+    .stack > * + * { margin-top: 10px; }
+    .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btns button { width: auto; cursor: pointer; }
+    button.primary {
+      background: linear-gradient(135deg, var(--primary), #4f73f5);
+      border: none;
+      color: #fff;
+      font-weight: 600;
+    }
+    button.ghost { color: var(--muted); }
+    button.ok { background: rgba(47,212,140,.15); color: var(--ok); border-color: rgba(47,212,140,.3); }
+    button.err { background: rgba(255,107,129,.12); color: var(--err); border-color: rgba(255,107,129,.3); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: .75rem;
+      background: rgba(108,140,255,.15);
+      color: #b7c6ff;
+      border: 1px solid rgba(108,140,255,.25);
+    }
+    .chip.ok { background: rgba(47,212,140,.12); color: var(--ok); border-color: rgba(47,212,140,.3); }
+    .chip.err { background: rgba(255,107,129,.12); color: var(--err); border-color: rgba(255,107,129,.3); }
+    .main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+    .meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+    .status { font-family: var(--mono); font-weight: 700; }
+    .status.ok { color: var(--ok); }
+    .status.err { color: var(--err); }
+    .status.warn { color: var(--warn); }
+    pre {
+      margin: 0;
+      background: #0a0e1a;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      overflow: auto;
+      max-height: 520px;
+      font-family: var(--mono);
+      font-size: .78rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tab {
+      padding: 7px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--soft);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: .82rem;
+    }
+    .tab.active {
+      background: rgba(108,140,255,.15);
+      color: var(--text);
+      border-color: rgba(108,140,255,.35);
+    }
+    .quick { display: flex; flex-direction: column; gap: 6px; }
+    .quick button {
+      text-align: left;
+      cursor: pointer;
+      font-size: .85rem;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .quick .method {
+      font-family: var(--mono);
+      font-size: .72rem;
+      font-weight: 700;
+      color: #9db0ff;
+      min-width: 48px;
+    }
+    .hint { font-size: .75rem; color: var(--muted); line-height: 1.5; }
+    code { font-family: var(--mono); font-size: .78rem; color: #9db0ff; }
+    @media (max-width: 960px) {
+      .wrap { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- 좌측: 인증 + 요청 -->
+    <aside>
+      <div class="panel">
+        <h1>API Tester</h1>
+        <p class="sub">FastAPI + JWT 학습 API를 브라우저에서 바로 테스트합니다.</p>
+        <div class="meta">
+          <span id="health-chip" class="chip">health: …</span>
+          <span id="auth-chip" class="chip err">미로그인</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Auth</h2>
+        <div class="stack">
+          <div>
+            <label>API Base</label>
+            <input id="base" value="http://127.0.0.1:8000" />
+          </div>
+          <div>
+            <label>Email</label>
+            <input id="email" type="email" value="demo@example.com" />
+          </div>
+          <div>
+            <label>Username</label>
+            <input id="username" value="demo" />
+          </div>
+          <div>
+            <label>Password</label>
+            <input id="password" type="password" value="demo1234" />
+          </div>
+          <div class="btns">
+            <button class="primary" id="btn-register" type="button">회원가입</button>
+            <button class="primary" id="btn-login" type="button">로그인</button>
+            <button class="ghost" id="btn-logout" type="button">로그아웃</button>
+          </div>
+          <button class="ok" id="btn-me" type="button">내 정보 (GET /auth/me)</button>
+          <div class="hint">토큰은 localStorage에 저장됩니다. 학습 API는 모두 Bearer 인증이 필요합니다.</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>요청</h2>
+        <div class="stack">
+          <div class="row">
+            <div>
+              <label>Method</label>
+              <select id="method">
+                <option>GET</option>
+                <option>POST</option>
+                <option selected>PATCH</option>
+                <option>PUT</option>
+                <option>DELETE</option>
+              </select>
+            </div>
+            <div>
+              <label>Path</label>
+              <input id="path" value="/api/health" />
+            </div>
+          </div>
+          <div>
+            <label>Query (예: q=JWT&limit=5)</label>
+            <input id="query" placeholder="q=JWT" />
+          </div>
+          <div>
+            <label>JSON Body</label>
+            <textarea id="body" placeholder='{"key": "value"}'></textarea>
+          </div>
+          <button class="primary" id="btn-send" type="button">요청 보내기</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>빠른 실행</h2>
+        <div class="quick" id="quick-list"></div>
+      </div>
+    </aside>
+
+    <!-- 우측: 응답 -->
+    <main class="main">
+      <div class="panel" style="flex:1; display:flex; flex-direction:column; min-height:0;">
+        <div class="meta">
+          <span class="status" id="res-status">—</span>
+          <span class="chip" id="res-time"></span>
+          <span class="chip" id="res-size"></span>
+        </div>
+        <h2 style="font-size:.9rem;margin:8px 0;color:var(--muted)">응답 Body</h2>
+        <pre id="res-body">// 요청을 보내면 여기에 응답이 표시됩니다.</pre>
+        <h2 style="font-size:.9rem;margin:16px 0 8px;color:var(--muted)">Headers</h2>
+        <pre id="res-headers" style="max-height:120px">// —</pre>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const TOKEN_KEY = "backend-lab-token";
+    const BASE_KEY = "backend-lab-api-base";
+
+    function base() {
+      const v = ($("base").value || "http://127.0.0.1:8000").replace(/\/+$/, "");
+      localStorage.setItem(BASE_KEY, v);
+      return v;
+    }
+
+    function token() {
+      return localStorage.getItem(TOKEN_KEY) || "";
+    }
+
+    function setAuthUi() {
+      const t = token();
+      const chip = $("auth-chip");
+      if (t) {
+        chip.className = "chip ok";
+        chip.textContent = "토큰 있음";
+      } else {
+        chip.className = "chip err";
+        chip.textContent = "미로그인";
+      }
+    }
+
+    function pretty(obj) {
+      try {
+        return JSON.stringify(obj, null, 2);
+      } catch {
+        return String(obj);
+      }
+    }
+
+    async function checkHealth() {
+      const chip = $("health-chip");
+      try {
+        const t0 = performance.now();
+        const r = await fetch(base() + "/api/health");
+        const data = await r.json().catch(() => ({}));
+        chip.className = "chip ok";
+        chip.textContent = `health OK · v${data.version || "?"} · ${Math.round(performance.now() - t0)}ms`;
+      } catch (e) {
+        chip.className = "chip err";
+        chip.textContent = "server down";
+      }
+    }
+
+    async function send({ method, path, query, body, auth = true }) {
+      const m = (method || $("method").value).toUpperCase();
+      const p = path || $("path").value;
+      const q = (query ?? $("query").value).trim();
+      let bodyText = body ?? $("body").value;
+      const url = base() + p + (q ? (p.includes("?") ? "&" : "?") + q : "");
+
+      const headers = {};
+      if (auth !== false) {
+        const t = token();
+        if (t) headers.Authorization = "Bearer " + t;
+      }
+
+      let payload;
+      if (bodyText && ["POST", "PUT", "PATCH"].includes(m)) {
+        const s = bodyText.trim();
+        if (s) {
+          try {
+            payload = JSON.parse(s);
+            bodyText = JSON.stringify(payload);
+            headers["Content-Type"] = "application/json";
+          } catch {
+            alert("JSON Body가 유효하지 않습니다.");
+            return null;
+          }
+        } else {
+          bodyText = undefined;
+        }
+      } else {
+        bodyText = undefined;
+      }
+
+      $("method").value = m;
+      $("path").value = p;
+      if (query !== undefined) $("query").value = q;
+      if (body !== undefined) $("body").value = bodyText ? JSON.stringify(payload ?? bodyText, null, 2) : "";
+
+      const st = $("res-status");
+      const timeEl = $("res-time");
+      const sizeEl = $("res-size");
+      st.className = "status";
+      st.textContent = "…";
+      timeEl.textContent = "";
+      sizeEl.textContent = "";
+      $("res-body").textContent = "// 요청 중…";
+
+      const t0 = performance.now();
+      try {
+        const init = { method: m, headers };
+        if (bodyText) init.body = bodyText;
+        const res = await fetch(url, init);
+        const ms = Math.round(performance.now() - t0);
+        const text = await res.text();
+        let data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = text;
+        }
+
+        st.textContent = `${res.status} ${res.statusText}`;
+        st.className = "status " + (res.ok ? "ok" : "err");
+        timeEl.textContent = `${ms} ms`;
+        sizeEl.textContent = `${text.length} B`;
+        $("res-body").textContent = pretty(data ?? "(empty)");
+
+        const h = {};
+        res.headers.forEach((v, k) => { h[k] = v; });
+        $("res-headers").textContent = pretty(h);
+
+        // register/login → token 저장
+        if (res.ok && m === "POST" && (p.includes("/auth/register") || p.includes("/auth/login")) && data?.access_token) {
+          localStorage.setItem(TOKEN_KEY, data.access_token);
+          setAuthUi();
+          if (!path) {
+            // keep current
+          }
+        }
+        return { ok: res.ok, status: res.status, data };
+      } catch (e) {
+        st.textContent = "NETWORK ERROR";
+        st.className = "status err";
+        $("res-body").textContent = String(e);
+        $("res-headers").textContent = "// —";
+        return null;
+      }
+    }
+
+    // ── Auth buttons ────────────────────────────────────────
+    $("btn-register").onclick = async () => {
+      await send({
+        method: "POST",
+        path: "/api/auth/register",
+        body: JSON.stringify({
+          email: $("email").value,
+          username: $("username").value,
+          password: $("password").value,
+        }),
+        auth: false,
+      });
+    };
+
+    $("btn-login").onclick = async () => {
+      await send({
+        method: "POST",
+        path: "/api/auth/login",
+        body: JSON.stringify({
+          email: $("email").value,
+          password: $("password").value,
+        }),
+        auth: false,
+      });
+    };
+
+    $("btn-logout").onclick = () => {
+      localStorage.removeItem(TOKEN_KEY);
+      setAuthUi();
+    };
+
+    $("btn-me").onclick = () => send({ method: "GET", path: "/api/auth/me" });
+    $("btn-send").onclick = () => send({});
+    $("base").onchange = () => checkHealth();
+
+    // ── Quick actions ───────────────────────────────────────
+    const QUICK = [
+      { label: "대시보드", method: "GET", path: "/api/analytics/dashboard", body: "" },
+      { label: "개념 목록", method: "GET", path: "/api/concepts", body: "" },
+      { label: "검색: JWT", method: "GET", path: "/api/search", query: "q=JWT", body: "" },
+      { label: "학습 세션 생성", method: "POST", path: "/api/study/sessions", body: '{\n  "only_unknown": true,\n  "limit": 5\n}' },
+      { label: "퀴즈 생성", method: "POST", path: "/api/quiz/generate", body: '{\n  "size": 5,\n  "include_advanced": true\n}' },
+      { label: "퀴즈 세션 시작", method: "POST", path: "/api/quiz/sessions", body: '{\n  "size": 3,\n  "source": "generated"\n}' },
+      { label: "복습 큐", method: "GET", path: "/api/review/queue", body: "" },
+      { label: "오답 목록", method: "GET", path: "/api/wrong-answers", body: "" },
+      { label: "진도 / 통계", method: "GET", path: "/api/stats", body: "" },
+      { label: "백업 export", method: "GET", path: "/api/data/export", body: "" },
+      { label: "오답 clear", method: "DELETE", path: "/api/wrong-answers", query: "mastered=true", body: "" },
+      { label: "진도 reset", method: "DELETE", path: "/api/progress/reset", body: "" },
+    ];
+
+    const list = $("quick-list");
+    QUICK.forEach((q) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.innerHTML = `<span><span class="method">${q.method}</span> ${q.label}</span><span style="color:var(--muted);font-size:.75rem">${q.path}</span>`;
+      btn.onclick = () => {
+        $("method").value = q.method;
+        $("path").value = q.path;
+        $("query").value = q.query || "";
+        $("body").value = q.body || "";
+        send({ method: q.method, path: q.path, query: q.query, body: q.body });
+      };
+      list.appendChild(btn);
+    });
+
+    // ── Init ────────────────────────────────────────────────
+    const savedBase = localStorage.getItem(BASE_KEY);
+    if (savedBase) $("base").value = savedBase;
+    setAuthUi();
+    checkHealth();
+    setInterval(checkHealth, 15000);
+
+    // Enter 단축키 (body 포커스 아닐 때)
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.tagName !== "TEXTAREA" && e.target.tagName !== "INPUT") {
+        if (e.target.id === "path" || e.target.id === "query") send({});
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send({});
+    });
+  </script>
+</body>
+</html>

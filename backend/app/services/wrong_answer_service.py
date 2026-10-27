@@ -1,9 +1,11 @@
+from __future__ import annotations
+
 import json
 import uuid
 
 from sqlalchemy.orm import Session
 
-from app.models import WrongAnswer
+from app.models import User, WrongAnswer
 from app.schemas.wrong_answer import WrongAnswerCreate, WrongAnswerUpdate
 
 
@@ -21,11 +23,12 @@ class WrongAnswerService:
 
     def list(
         self,
+        user: User,
         *,
         mastered: bool | None = None,
         category_id: str | None = None,
     ) -> list[WrongAnswer]:
-        query = self.db.query(WrongAnswer)
+        query = self.db.query(WrongAnswer).filter(WrongAnswer.user_id == user.id)
         if mastered is not None:
             query = query.filter(WrongAnswer.mastered == mastered)
         if category_id:
@@ -35,18 +38,19 @@ class WrongAnswerService:
     def get(self, wrong_id: str) -> WrongAnswer | None:
         return self.db.get(WrongAnswer, wrong_id)
 
-    def find_duplicate(self, source_id: str, question: str) -> WrongAnswer | None:
+    def find_duplicate(self, user_id: str, source_id: str, question: str) -> WrongAnswer | None:
         return (
             self.db.query(WrongAnswer)
             .filter(
+                WrongAnswer.user_id == user_id,
                 WrongAnswer.source_id == source_id,
                 WrongAnswer.question == question,
             )
             .first()
         )
 
-    def create(self, payload: WrongAnswerCreate) -> WrongAnswer:
-        existing = self.find_duplicate(payload.source_id, payload.question)
+    def create(self, user_id: str, payload: WrongAnswerCreate) -> WrongAnswer:
+        existing = self.find_duplicate(user_id, payload.source_id, payload.question)
         if existing:
             existing.my_index = payload.my_index
             existing.mastered = False
@@ -57,6 +61,7 @@ class WrongAnswerService:
 
         row = WrongAnswer(
             id=f"w-{uuid.uuid4().hex[:12]}",
+            user_id=user_id,
             source_id=payload.source_id,
             category_id=payload.category_id,
             question_type=payload.question_type,
@@ -84,15 +89,39 @@ class WrongAnswerService:
         self.db.delete(row)
         self.db.commit()
 
-    def clear_by_mastered(self, mastered: bool = True) -> int:
-        query = self.db.query(WrongAnswer).filter(WrongAnswer.mastered.is_(mastered))
+    def clear_by_mastered(self, user_id: str, mastered: bool = True) -> int:
+        query = (
+            self.db.query(WrongAnswer)
+            .filter(WrongAnswer.user_id == user_id, WrongAnswer.mastered.is_(mastered))
+        )
         count = query.count()
         query.delete(synchronize_session=False)
         self.db.commit()
         return count
 
-    def delete_all(self) -> int:
-        count = self.db.query(WrongAnswer).count()
-        self.db.query(WrongAnswer).delete()
+    def delete_all(self, user_id: str) -> int:
+        query = self.db.query(WrongAnswer).filter(WrongAnswer.user_id == user_id)
+        count = query.count()
+        query.delete(synchronize_session=False)
         self.db.commit()
         return count
+
+    def open_count(self, user_id: str) -> int:
+        return (
+            self.db.query(WrongAnswer)
+            .filter(
+                WrongAnswer.user_id == user_id,
+                WrongAnswer.mastered.is_(False),
+            )
+            .count()
+        )
+
+    def mastered_count(self, user_id: str) -> int:
+        return (
+            self.db.query(WrongAnswer)
+            .filter(
+                WrongAnswer.user_id == user_id,
+                WrongAnswer.mastered.is_(True),
+            )
+            .count()
+        )

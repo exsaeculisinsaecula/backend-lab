@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db
 from app.routers import (
     analytics,
+    auth,
     categories,
     concepts,
     progress,
@@ -20,9 +21,10 @@ app = FastAPI(
     title="Backend Lab API",
     description=(
         "백엔드 핵심 개념 학습 API — "
-        "개념 카드 · 퀴즈 게임 · 오답노트 · 복습 큐 · 학습 분석 · 검색 · 백업"
+        "JWT 로그인 · 개념 카드 · 퀴즈 게임 · 오답노트 · 복습 큐 · 분석 · 검색 · 백업\n\n"
+        "모든 학습 API는 Bearer 토큰이 필요하며, 데이터는 로그인 사용자 단위로 격리됩니다."
     ),
-    version="2.0.0",
+    version="3.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -43,10 +45,13 @@ def on_startup() -> None:
 
 @app.get("/api/health", tags=["health"])
 def health() -> dict:
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": "3.0.0", "auth": "jwt-bearer"}
 
 
-# ── 콘텐츠 CRUD ─────────────────────────────────────────────
+# ── 인증 (공개) ─────────────────────────────────────────────
+app.include_router(auth.router)
+
+# ── 콘텐츠 CRUD (인증 필요) ─────────────────────────────────
 app.include_router(categories.router)
 app.include_router(concepts.router)
 app.include_router(quiz.router)

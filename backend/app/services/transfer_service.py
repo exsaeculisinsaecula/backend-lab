@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.models import Category, Concept, QuizQuestion, StudyProgress, WrongAnswer
+from app.models import Category, Concept, QuizQuestion, StudyProgress, User, UserConceptState, WrongAnswer
 from app.schemas.study import ExportOut, ImportIn, ImportResult
 
 
 class TransferService:
-    """데이터 백업/복원"""
-
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def export(self) -> ExportOut:
-        from datetime import datetime, timezone
-
+    def export(self, user: User) -> ExportOut:
         categories = [
             {
                 "id": c.id,
@@ -26,6 +23,13 @@ class TransferService:
             }
             for c in self.db.query(Category).order_by(Category.sort_order).all()
         ]
+
+        known_map = {
+            r.concept_id: r.is_known
+            for r in self.db.query(UserConceptState)
+            .filter(UserConceptState.user_id == user.id)
+            .all()
+        }
         concepts = [
             {
                 "id": c.id,
@@ -33,7 +37,7 @@ class TransferService:
                 "term": c.term,
                 "definition": c.definition,
                 "example": c.example,
-                "is_known": c.is_known,
+                "is_known": known_map.get(c.id, False),
             }
             for c in self.db.query(Concept).all()
         ]
@@ -62,7 +66,9 @@ class TransferService:
                 "mastered": w.mastered,
                 "count": w.count,
             }
-            for w in self.db.query(WrongAnswer).all()
+            for w in self.db.query(WrongAnswer)
+            .filter(WrongAnswer.user_id == user.id)
+            .all()
         ]
         progress = [
             {
@@ -70,7 +76,9 @@ class TransferService:
                 "answered": p.answered,
                 "correct": p.correct,
             }
-            for p in self.db.query(StudyProgress).all()
+            for p in self.db.query(StudyProgress)
+            .filter(StudyProgress.user_id == user.id)
+            .all()
         ]
 
         return ExportOut(
@@ -82,7 +90,7 @@ class TransferService:
             progress=progress,
         )
 
-    def import_data(self, payload: ImportIn) -> ImportResult:
+    def import_data(self, user: User, payload: ImportIn) -> ImportResult:
         counts = {
             "categories": 0,
             "concepts": 0,
@@ -106,6 +114,7 @@ class TransferService:
             )
             counts["categories"] += 1
 
+        known_flags: list[tuple[str, bool]] = []
         for item in payload.concepts:
             if self.db.get(Concept, item.get("id")):
                 skipped += 1
@@ -117,9 +126,10 @@ class TransferService:
                     term=item["term"],
                     definition=item["definition"],
                     example=item.get("example", ""),
-                    is_known=bool(item.get("is_known", False)),
                 )
             )
+            if item.get("is_known"):
+                known_flags.append((item["id"], True))
             counts["concepts"] += 1
 
         for item in payload.quiz_questions:
@@ -145,6 +155,7 @@ class TransferService:
             self.db.add(
                 WrongAnswer(
                     id=item["id"],
+                    user_id=user.id,
                     source_id=item.get("source_id", ""),
                     category_id=item.get("category_id", ""),
                     question_type=item.get("question_type", ""),
@@ -162,7 +173,10 @@ class TransferService:
         for item in payload.progress:
             existing = (
                 self.db.query(StudyProgress)
-                .filter(StudyProgress.date == item.get("date"))
+                .filter(
+                    StudyProgress.user_id == user.id,
+                    StudyProgress.date == item.get("date"),
+                )
                 .first()
             )
             if existing:
@@ -170,12 +184,22 @@ class TransferService:
                 continue
             self.db.add(
                 StudyProgress(
+                    user_id=user.id,
                     date=item["date"],
                     answered=int(item.get("answered", 0)),
                     correct=int(item.get("correct", 0)),
                 )
             )
             counts["progress"] += 1
+
+        for concept_id, is_known in known_flags:
+            self.db.add(
+                UserConceptState(
+                    user_id=user.id,
+                    concept_id=concept_id,
+                    is_known=is_known,
+                )
+            )
 
         self.db.commit()
         return ImportResult(**counts, skipped=skipped)

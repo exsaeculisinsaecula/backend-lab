@@ -2,40 +2,43 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 
-from app.deps import AnalyticsServiceDep
+from app.deps import AnalyticsServiceDep, CurrentUser
 from app.schemas.study import CategoryProgress, DashboardOut, TimelineItem, WeakArea
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
 @router.get("/dashboard", response_model=DashboardOut)
-def dashboard(service: AnalyticsServiceDep) -> DashboardOut:
-    """대시보드에 필요한 학습 현황을 한 번에 반환합니다."""
-    return service.dashboard()
+def dashboard(service: AnalyticsServiceDep, user: CurrentUser) -> DashboardOut:
+    return service.dashboard(user)
 
 
 @router.get("/categories", response_model=list[CategoryProgress])
-def category_progress(service: AnalyticsServiceDep) -> list[CategoryProgress]:
-    return service.category_progress()
+def category_progress(
+    service: AnalyticsServiceDep,
+    user: CurrentUser,
+) -> list[CategoryProgress]:
+    return service.category_progress(user)
 
 
 @router.get("/weak-areas", response_model=list[WeakArea])
 def weak_areas(
     service: AnalyticsServiceDep,
+    user: CurrentUser,
     limit: Annotated[int, Query(ge=1, le=20)] = 5,
 ) -> list[WeakArea]:
-    """오답·미암기 개념이 많은 취약 카테고리를 우선순위로 반환합니다."""
-    return service.weak_areas(limit=limit)
+    return service.weak_areas(user, limit=limit)
 
 
 @router.get("/timeline", response_model=list[TimelineItem])
 def timeline(
     service: AnalyticsServiceDep,
+    user: CurrentUser,
     days: Annotated[int, Query(ge=1, le=90)] = 14,
 ) -> list[TimelineItem]:
-    return service.timeline(days=days)
+    return service.timeline(user, days=days)
 
 
 @router.get("/today", response_model=TimelineItem)
-def today(service: AnalyticsServiceDep) -> TimelineItem:
-    return service.today()
+def today(service: AnalyticsServiceDep, user: CurrentUser) -> TimelineItem:
+    return service.today(user)

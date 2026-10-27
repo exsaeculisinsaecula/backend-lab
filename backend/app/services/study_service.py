@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 import uuid
+from datetime import date as date_cls
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -14,6 +15,9 @@ from app.models import (
     QuizSessionAnswer,
     StudySession,
     StudySessionAnswer,
+    User,
+    UserConceptState,
+    WrongAnswer,
 )
 from app.schemas.study import StudyAnswerIn, StudyCardOut, StudySessionCreate, StudySessionOut
 
@@ -26,20 +30,51 @@ class StudyService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def _filter_concepts(self, payload: StudySessionCreate) -> list[Concept]:
+    def _known_map(self, user_id: str) -> dict[str, bool]:
+        rows = (
+            self.db.query(UserConceptState)
+            .filter(UserConceptState.user_id == user_id)
+            .all()
+        )
+        return {r.concept_id: r.is_known for r in rows}
+
+    def _set_known(self, user_id: str, concept_id: str, is_known: bool) -> None:
+        row = (
+            self.db.query(UserConceptState)
+            .filter(
+                UserConceptState.user_id == user_id,
+                UserConceptState.concept_id == concept_id,
+            )
+            .first()
+        )
+        if row:
+            row.is_known = is_known
+        else:
+            self.db.add(
+                UserConceptState(
+                    user_id=user_id,
+                    concept_id=concept_id,
+                    is_known=is_known,
+                )
+            )
+
+    def _filter_concepts(self, user: User, payload: StudySessionCreate) -> list[Concept]:
         query = self.db.query(Concept)
         if payload.category_id:
             query = query.filter(Concept.category_id == payload.category_id)
+        concepts = query.order_by(Concept.term).all()
+        known_map = self._known_map(user.id)
         if payload.only_unknown:
-            query = query.filter(Concept.is_known.is_(False))
+            concepts = [c for c in concepts if not known_map.get(c.id, False)]
         if payload.only_known:
-            query = query.filter(Concept.is_known.is_(True))
-        items = query.order_by(Concept.term).all()
+            concepts = [c for c in concepts if known_map.get(c.id, False)]
         if payload.shuffle:
-            random.shuffle(items)
-        return items[: payload.limit]
+            random.shuffle(concepts)
+        return concepts[: payload.limit]
 
-    def _card(self, concept: Concept, index: int, total: int) -> StudyCardOut:
+    def _card(
+        self, concept: Concept, index: int, total: int, is_known: bool
+    ) -> StudyCardOut:
         return StudyCardOut(
             index=index,
             total=total,
@@ -48,7 +83,7 @@ class StudyService:
             definition=concept.definition,
             example=concept.example,
             category_id=concept.category_id,
-            is_known=concept.is_known,
+            is_known=is_known,
         )
 
     def _to_out(self, session: StudySession, with_card: bool = True) -> StudySessionOut:
@@ -62,7 +97,12 @@ class StudyService:
         if with_card and not session.is_completed and session.current_index < total:
             concept = self.db.get(Concept, concept_ids[session.current_index])
             if concept:
-                current_card = self._card(concept, session.current_index, total)
+                current_card = self._card(
+                    concept,
+                    session.current_index,
+                    total,
+                    self._known_map(session.user_id).get(concept.id, False),
+                )
 
         meta = json.loads(session.filter_json or "{}")
         return StudySessionOut(
@@ -79,10 +119,11 @@ class StudyService:
             current_card=current_card,
         )
 
-    def create_session(self, payload: StudySessionCreate) -> StudySession:
-        concepts = self._filter_concepts(payload)
+    def create_session(self, user: User, payload: StudySessionCreate) -> StudySession:
+        concepts = self._filter_concepts(user, payload)
         session = StudySession(
             id=f"ss-{uuid.uuid4().hex[:12]}",
+            user_id=user.id,
             filter_json=json.dumps(payload.model_dump(), ensure_ascii=False),
             concept_ids_json=json.dumps([c.id for c in concepts]),
             current_index=0,
@@ -95,9 +136,10 @@ class StudyService:
         self.db.refresh(session)
         return session
 
-    def list_sessions(self, *, limit: int = 20) -> list[StudySession]:
+    def list_sessions(self, user_id: str, *, limit: int = 20) -> list[StudySession]:
         return (
             self.db.query(StudySession)
+            .filter(StudySession.user_id == user_id)
             .order_by(StudySession.started_at.desc())
             .limit(limit)
             .all()
@@ -123,9 +165,7 @@ class StudyService:
             return session
 
         concept_id = concept_ids[session.current_index]
-        concept = self.db.get(Concept, concept_id)
-        if concept:
-            concept.is_known = payload.is_known
+        self._set_known(session.user_id, concept_id, payload.is_known)
 
         self.db.add(
             StudySessionAnswer(
@@ -152,8 +192,6 @@ class StudyService:
 
 
 class QuizGameService:
-    """개념 카드 + 심화 문항으로 퀴즈를 생성하고 세션을 진행한다."""
-
     def __init__(self, db: Session) -> None:
         self.db = db
 
@@ -185,7 +223,6 @@ class QuizGameService:
 
         questions: list[dict] = []
 
-        # 심화 문항 최대 40%
         adv_count = min(len(advanced), max(1 if advanced else 0, int(size * 0.4)))
         picked_adv = random.sample(advanced, k=min(adv_count, len(advanced))) if advanced else []
         for row in picked_adv:
@@ -201,7 +238,6 @@ class QuizGameService:
                 }
             )
 
-        # 개념 기반 선다형
         need = max(0, size - len(questions))
         picked_concepts = random.sample(concepts, k=min(need, len(concepts))) if concepts else []
         modes = ["def", "term", "def"]
@@ -236,12 +272,13 @@ class QuizGameService:
             random.shuffle(questions)
         return questions[:size]
 
-    def generate_wrong_questions(self, *, size: int | None = None) -> list[dict]:
-        from app.models import WrongAnswer
-
+    def generate_wrong_questions(self, user_id: str, *, size: int | None = None) -> list[dict]:
         rows = (
             self.db.query(WrongAnswer)
-            .filter(WrongAnswer.mastered.is_(False))
+            .filter(
+                WrongAnswer.user_id == user_id,
+                WrongAnswer.mastered.is_(False),
+            )
             .order_by(WrongAnswer.updated_at.desc())
             .all()
         )
@@ -264,6 +301,7 @@ class QuizGameService:
 
     def create_session(
         self,
+        user: User,
         *,
         source: str = "generated",
         size: int = 10,
@@ -271,7 +309,7 @@ class QuizGameService:
         include_advanced: bool = True,
     ) -> QuizSession:
         if source == "wrong":
-            questions = self.generate_wrong_questions(size=size or None)
+            questions = self.generate_wrong_questions(user.id, size=size or None)
         elif source == "db":
             rows = self.db.query(QuizQuestion)
             if category_id:
@@ -299,6 +337,7 @@ class QuizGameService:
 
         session = QuizSession(
             id=f"qs-{uuid.uuid4().hex[:12]}",
+            user_id=user.id,
             source=source,
             filter_json=json.dumps(
                 {
@@ -323,9 +362,10 @@ class QuizGameService:
     def get_session(self, session_id: str) -> QuizSession | None:
         return self.db.get(QuizSession, session_id)
 
-    def list_sessions(self, *, limit: int = 20) -> list[QuizSession]:
+    def list_sessions(self, user_id: str, *, limit: int = 20) -> list[QuizSession]:
         return (
             self.db.query(QuizSession)
+            .filter(QuizSession.user_id == user_id)
             .order_by(QuizSession.started_at.desc())
             .limit(limit)
             .all()
@@ -373,18 +413,19 @@ class QuizGameService:
         }
 
     def answer(self, session: QuizSession, choice_index: int) -> dict:
-        from app.models import StudyProgress, WrongAnswer
-
         questions = self.questions_of(session)
         if session.is_completed or session.current_index >= len(questions):
             result = self.to_out(session)
-            result["correct"] = False
-            result["correct_index"] = -1
-            result["selected_index"] = choice_index
-            result["explanation"] = "이 세션은 이미 종료되었습니다."
-            result["next_question"] = None
-            result["is_completed"] = True
-            result["accuracy"] = result["accuracy"]
+            result.update(
+                {
+                    "correct": False,
+                    "correct_index": -1,
+                    "selected_index": choice_index,
+                    "explanation": "이 세션은 이미 종료되었습니다.",
+                    "next_question": None,
+                    "is_completed": True,
+                }
+            )
             return result
 
         q = questions[session.current_index]
@@ -403,21 +444,28 @@ class QuizGameService:
             )
         )
 
-        # 진도 집계
-        from datetime import date as _date
+        day = date_cls.today().isoformat()
+        from app.models import StudyProgress
 
-        day = _date.today().isoformat()
-        progress = self.db.query(StudyProgress).filter(StudyProgress.date == day).first()
+        progress = (
+            self.db.query(StudyProgress)
+            .filter(
+                StudyProgress.user_id == session.user_id,
+                StudyProgress.date == day,
+            )
+            .first()
+        )
         if not progress:
-            progress = StudyProgress(date=day, answered=0, correct=0)
+            progress = StudyProgress(
+                user_id=session.user_id, date=day, answered=0, correct=0
+            )
             self.db.add(progress)
         progress.answered += 1
         if is_correct:
             progress.correct += 1
 
-        # 오답노트 자동 저장
         if not is_correct:
-            self._upsert_wrong(q, choice_index)
+            self._upsert_wrong(session.user_id, q, choice_index)
 
         session.current_index += 1
         if session.current_index >= len(questions):
@@ -441,7 +489,6 @@ class QuizGameService:
             }
 
         total = len(questions)
-        accuracy = round(session.score / total * 100, 2) if total else None
         return {
             "correct": is_correct,
             "correct_index": q["correct_index"],
@@ -451,16 +498,15 @@ class QuizGameService:
             "total": total,
             "next_question": next_question,
             "is_completed": session.is_completed,
-            "accuracy": accuracy,
+            "accuracy": round(session.score / total * 100, 2) if total else None,
         }
 
-    def _upsert_wrong(self, q: dict, my_index: int) -> None:
-        from app.models import WrongAnswer
-
+    def _upsert_wrong(self, user_id: str, q: dict, my_index: int) -> None:
         source_id = q["key"]
         existing = (
             self.db.query(WrongAnswer)
             .filter(
+                WrongAnswer.user_id == user_id,
                 WrongAnswer.source_id == source_id,
                 WrongAnswer.question == q["question"],
             )
@@ -475,6 +521,7 @@ class QuizGameService:
         self.db.add(
             WrongAnswer(
                 id=f"w-{uuid.uuid4().hex[:12]}",
+                user_id=user_id,
                 source_id=source_id,
                 category_id=q.get("category_id", ""),
                 question_type=q.get("type", ""),
