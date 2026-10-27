@@ -1,87 +1,59 @@
-import re
-import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException, Query, status
 
-from app import schemas
-from app.database import get_db
-from app.models import Category, Concept
+from app.deps import CategoryServiceDep, ConceptOr404, ConceptServiceDep
+from app.schemas.concept import ConceptCreate, ConceptOut, ConceptUpdate
 
 router = APIRouter(prefix="/api/concepts", tags=["concepts"])
 
 
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return slug or uuid.uuid4().hex[:8]
-
-
-def get_concept_or_404(db: Session, concept_id: str) -> Concept:
-    concept = db.get(Concept, concept_id)
-    if not concept:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Concept not found")
-    return concept
-
-
-def ensure_category(db: Session, category_id: str) -> None:
-    if not db.get(Category, category_id):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown category_id: {category_id}")
-
-
-@router.get("", response_model=list[schemas.ConceptOut])
+@router.get("", response_model=list[ConceptOut])
 def list_concepts(
-    db: Session = Depends(get_db),
-    category_id: str | None = Query(default=None),
-    is_known: bool | None = Query(default=None),
-    q: str | None = Query(default=None, description="term/definition 검색"),
-) -> list[Concept]:
-    query = db.query(Concept)
-    if category_id:
-        query = query.filter(Concept.category_id == category_id)
-    if is_known is not None:
-        query = query.filter(Concept.is_known == is_known)
-    if q:
-        like = f"%{q}%"
-        query = query.filter((Concept.term.like(like)) | (Concept.definition.like(like)))
-    return query.order_by(Concept.category_id, Concept.term).all()
+    service: ConceptServiceDep,
+    category_service: CategoryServiceDep,
+    category_id: Annotated[str | None, Query()] = None,
+    is_known: Annotated[bool | None, Query()] = None,
+    q: Annotated[str | None, Query(description="term/definition 검색")] = None,
+) -> list[ConceptOut]:
+    if category_id and not category_service.exists(category_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown category_id: {category_id}")
+    return service.list(category_id=category_id, is_known=is_known, q=q)
 
 
-@router.get("/{concept_id}", response_model=schemas.ConceptOut)
-def get_concept(concept_id: str, db: Session = Depends(get_db)) -> Concept:
-    return get_concept_or_404(db, concept_id)
+@router.get("/{concept_id}", response_model=ConceptOut)
+def get_concept(concept: ConceptOr404) -> ConceptOut:
+    return concept
 
 
-@router.post("", response_model=schemas.ConceptOut, status_code=status.HTTP_201_CREATED)
-def create_concept(payload: schemas.ConceptCreate, db: Session = Depends(get_db)) -> Concept:
-    ensure_category(db, payload.category_id)
-    data = payload.model_dump()
-    concept_id = data.pop("id") or f"c-{slugify(payload.term)}-{uuid.uuid4().hex[:6]}"
-    if db.get(Concept, concept_id):
+@router.post("", response_model=ConceptOut, status_code=status.HTTP_201_CREATED)
+def create_concept(
+    payload: ConceptCreate,
+    service: ConceptServiceDep,
+    category_service: CategoryServiceDep,
+) -> ConceptOut:
+    if not category_service.exists(payload.category_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown category_id: {payload.category_id}")
+    if payload.id and service.get(payload.id):
         raise HTTPException(status.HTTP_409_CONFLICT, "Concept already exists")
-    concept = Concept(id=concept_id, **data)
-    db.add(concept)
-    db.commit()
-    db.refresh(concept)
-    return concept
+    return service.create(payload)
 
 
-@router.patch("/{concept_id}", response_model=schemas.ConceptOut)
+@router.patch("/{concept_id}", response_model=ConceptOut)
 def update_concept(
-    concept_id: str, payload: schemas.ConceptUpdate, db: Session = Depends(get_db)
-) -> Concept:
-    concept = get_concept_or_404(db, concept_id)
-    data = payload.model_dump(exclude_unset=True)
-    if "category_id" in data:
-        ensure_category(db, data["category_id"])
-    for key, value in data.items():
-        setattr(concept, key, value)
-    db.commit()
-    db.refresh(concept)
-    return concept
+    payload: ConceptUpdate,
+    concept: ConceptOr404,
+    service: ConceptServiceDep,
+    category_service: CategoryServiceDep,
+) -> ConceptOut:
+    if payload.category_id is not None and not category_service.exists(payload.category_id):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unknown category_id: {payload.category_id}",
+        )
+    return service.update(concept, payload)
 
 
 @router.delete("/{concept_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_concept(concept_id: str, db: Session = Depends(get_db)) -> None:
-    concept = get_concept_or_404(db, concept_id)
-    db.delete(concept)
-    db.commit()
+def delete_concept(concept: ConceptOr404, service: ConceptServiceDep) -> None:
+    service.delete(concept)
