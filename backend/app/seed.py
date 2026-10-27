@@ -1,0 +1,292 @@
+"""기존 학습 콘텐츠를 SQLite에 넣는 시드 스크립트.
+
+실행:  python -m app.seed   (backend/ 작업 디렉토리에서)
+"""
+
+from __future__ import annotations
+
+import json
+
+from app.database import SessionLocal, init_db
+from app.models import Category, Concept, QuizQuestion
+
+CATEGORIES = [
+    {"id": "http", "name": "HTTP · REST", "icon": "🌐", "sort_order": 1},
+    {"id": "db", "name": "데이터베이스", "icon": "🗄️", "sort_order": 2},
+    {"id": "auth", "name": "인증 · 보안", "icon": "🔐", "sort_order": 3},
+    {"id": "cache", "name": "캐싱 · 성능", "icon": "⚡", "sort_order": 4},
+    {"id": "concurrency", "name": "동시성", "icon": "🧵", "sort_order": 5},
+    {"id": "arch", "name": "아키텍처", "icon": "🏗️", "sort_order": 6},
+    {"id": "mq", "name": "메시징", "icon": "📨", "sort_order": 7},
+    {"id": "api", "name": "API 설계", "icon": "🧩", "sort_order": 8},
+]
+
+CONCEPTS = [
+    # HTTP · REST
+    ("http-idempotent", "http", "멱등성 (Idempotency)",
+     "같은 요청을 여러 번 수행해도 결과 상태가 달라지지 않는 성질. GET·PUT·DELETE는 멱등, POST는 비멱등이다.",
+     "PUT /users/1을 10번 호출해도 리소스 상태는 같다. POST /orders는 주문이 10개 생길 수 있다."),
+    ("http-safe", "http", "안전 메서드 (Safe Method)",
+     "서버 리소스를 변경하지 않는 HTTP 메서드. GET·HEAD·OPTIONS가 해당하며 실패해도 서버 상태에 영향이 없다.",
+     "GET /products는 조회만 하므로 안전 메서드다."),
+    ("http-status-2xx", "http", "HTTP 2xx · 3xx · 4xx · 5xx",
+     "2xx 성공, 3xx 리다이렉트, 4xx 클라이언트 오류, 5xx 서버 오류. 가장 흔한 실수는 서버 버그에 400을 쓰는 것.",
+     "404 Not Found는 리소스 부재, 500 Internal Server Error는 서버 예외, 503 Service Unavailable은 일시적 과부하."),
+    ("http-cookie-session", "http", "쿠키 vs 세션",
+     "쿠키는 클라이언트에 저장되는 키-값, 세션은 서버에 저장된 상태. 보통 세션 ID를 쿠키에 담아 연결한다.",
+     "세션은 서버 메모리를 쓰므로 다중 인스턴스에서 Redis 같은 공유 저장소가 필요하다."),
+    ("rest-stateless", "http", "REST의 무상태성 (Stateless)",
+     "요청마다 인증·상태 정보가 모두 포함되어야 하며, 서버는 클라이언트 세션을 저장하지 않는다. 확장성의 핵심.",
+     "대신 토큰(JWT 등)을 매 요청에 실어 보낸다."),
+    ("rest-resource", "http", "리소스 중심 URI",
+     "URI는 동사가 아니라 명사(리소스)로 표현한다. 행위는 HTTP 메서드가 담당한다.",
+     "❌ POST /createUser → ✅ POST /users. 조회는 GET /users/{id}."),
+    ("http-cors", "http", "CORS",
+     "브라우저가 다른 출처(origin)의 리소스 요청을 제한하는 정책. 서버가 Access-Control-Allow-Origin 헤더로 허용 범위를 알려준다.",
+     "localhost:3000 프론트가 api.example.com을 호출하려면 서버가 해당 출처를 허용해야 한다."),
+
+    # DB
+    ("db-acid", "db", "ACID",
+     "트랜잭션의 네 가지 보장. 원자성(Atomicity), 일관성(Consistency), 격리성(Isolation), 지속성(Durability).",
+     "이체에서 출금과 입금은 모두 성공하거나 모두 실패해야 한다(원자성)."),
+    ("db-index", "db", "인덱스 (Index)",
+     "특정 컬럼 조회를 빠르게 만드는 자료구조(주로 B-Tree). 조회는 빨라지지만 쓰기·저장 공간 비용이 든다.",
+     "WHERE email = ? 조회가 잦다면 email에 인덱스를 건다. 다만 너무 많은 인덱스는 INSERT/UPDATE를 느리게 만든다."),
+    ("db-n-plus-one", "db", "N+1 문제",
+     "목록 1회 조회 후 각 행마다 연관 데이터를 따로 조회해 쿼리가 N+1번 실행되는 성능 문제.",
+     "유저 100명 조회 + 유저마다 프로필 조회 = 101쿼리. JOIN 또는 배치 로딩으로 해결한다."),
+    ("db-isolation-level", "db", "트랜잭션 격리 수준",
+     "동시 트랜잭션 간 간섭 정도. Read Uncommitted → Read Committed → Repeatable Read → Serializable 순으로 강해진다.",
+     "커밋 전 데이터를 읽는 문제(더티 리드)는 Read Uncommitted에서만 발생한다. 실무 기본은 Read Committed."),
+    ("db-deadlock", "db", "데드락 (Deadlock)",
+     "둘 이상의 트랜잭션이 서로가 가진 락을 기다리며 영원히 진행하지 못하는 상태.",
+     "T1이 A→B, T2가 B→A로 락을 잡으면 교착. 락 획득 순서를 통일하면 예방할 수 있다."),
+    ("db-replication", "db", "복제 (Replication)",
+     "데이터를 여러 DB 인스턴스에 복사해 가용성·읽기 성능을 높이는 기법. Primary-Replica 구조가 흔하다.",
+     "쓰기는 Primary, 읽기는 Replica로 분리. 다만 복제 지연(replica lag)으로 약간 옛날 데이터를 읽을 수 있다."),
+    ("db-sharding", "db", "샤딩 (Sharding)",
+     "데이터를 수평 분할해 여러 DB 서버에 나눠 저장하는 기법. 데이터 규모가 단일 서버를 넘을 때 사용한다.",
+     "user_id % 4로 4개 샤드에 분산. 조인·글로벌 정렬·트랜잭션이 어려워진다."),
+    ("db-orm", "db", "ORM",
+     "객체와 관형 DB 테이블을 매핑해 SQL 대신 코드로 조작하는 계층. 개발 속도↑, 최적화 제어↓.",
+     "JPA/Hibernate, SQLAlchemy, Prisma, TypeORM 등."),
+
+    # Auth
+    ("auth-jwt", "auth", "JWT (JSON Web Token)",
+     "헤더·페이로드·시그니처로 구성된 비대칭/대칭 서명 토큰. 서버 저장 없이 검증 가능해 무상태 인증에 쓴다.",
+     "페이로드는 Base64일 뿐 암호화가 아니므로 민감 정보를 넣으면 안 된다. 만료(exp)를 짧게 두고 리프레시 토큰을 별도 운영."),
+    ("auth-oauth", "auth", "OAuth 2.0",
+     "제3자에게 비밀번호 없이 권한 일부만 위임하는 인가 프레임워크. Access Token / Refresh Token / Authorization Code 흐름이 핵심.",
+     "'구글로 로그인'이 대표 사례. 리소스 오너는 구글이고, 앱은 클라이언트다."),
+    ("auth-rbac", "auth", "RBAC (Role-Based Access Control)",
+     "사용자에게 역할을 부여하고, 역할에 권한을 매핑해 접근을 제어하는 모델.",
+     "ROLE_ADMIN → 전체, ROLE_USER → 본인 데이터만. 역할이 폭발하면 ABAC로 확장하기도 한다."),
+    ("auth-hash", "auth", "비밀번호 해싱",
+     "비밀번호는 절대 평문 저장하지 않고 bcrypt·scrypt·Argon2 등으로 해싱한다. SHA-256 단독은 빠져 금지.",
+     "같은 비밀번호도 솔트(salt) 때문에 해시가 달라진다. rainbow table 공격을 막는다."),
+    ("auth-sql-injection", "auth", "SQL Injection",
+     "사용자 입력을 SQL에 문자열로 이어붙여 쿼리를 변조하는 공격. Prepared Statement(바인딩)로 방지한다.",
+     "❌ WHERE id = '\" + input + \"' → ✅ WHERE id = ? (파라미터 바인딩)"),
+    ("auth-xss", "auth", "XSS (Cross-Site Scripting)",
+     "공격 스크립트를 페이지에 주입해 사용자 브라우저에서 실행시키는 공격. 이스케이프·CSP·HttpOnly 쿠키로 방어한다.",
+     "댓글에 <script>alert(1)</script>을 넣는 식. 리액트는 기본 이스케이프를 해준다."),
+    ("auth-csrf", "auth", "CSRF",
+     "로그인된 사용자의 브라우저를 이용해 몰래 요청을 보내는 공격. SameSite 쿠키·CSRF 토큰으로 방지한다.",
+     "악성 페이지의 img 태그가 bank.com/transfer?to=hacker 를 호출하는 식."),
+    ("auth-https", "auth", "HTTPS / TLS",
+     "HTTP에 암호화·무결성·서버 인증을 더한 프로토콜. 중간자 공격(도청·변조)을 막는다.",
+     "인증 토큰·비밀번호는 반드시 HTTPS 위에서만 전송."),
+
+    # Cache
+    ("cache-redis", "cache", "Redis",
+     "인메모리 키-값 저장소. 세션·캐시·레이트리밋·큐 등에 폭넓게 쓰이는 표준 컴포넌트.",
+     "DB 조회 결과를 TTL 60초로 캐시. 데이터가 커지면 DB보다 빠르지만 휘발성은 Redis가 높다."),
+    ("cache-strategy", "cache", "캐시 전략 (Cache-aside / Write-through)",
+     "Cache-aside는 앱이 캐시를 직접 읽고 미스 시 DB에서 로드. Write-through는 쓰기 시 캐시와 DB를 함께 갱신한다.",
+     "대부분의 웹 서비스는 Cache-aside + TTL 만료를 사용한다."),
+    ("cache-ttl", "cache", "TTL (Time To Live)",
+     "캐시 항목의 생존 시간. 만료 후 접근하면 삭제되고 다시 로드한다. 신선도와 성능의 절충점.",
+     "TTL이 너무 길면 오래된 데이터, 너무 짧으면 캐시 히트율이 떨어진다."),
+    ("cache-stampede", "cache", "캐시 스탬피드 (Cache Stampede)",
+     "만료 직후 많은 요청이 동시에 DB를 때려 부하가 폭주하는 현상. 락·논리적 만료·미리 갱신으로 완화한다.",
+     "hot key 1개가 만료되면 수천 개 요청이 한꺼번에 DB로 간다."),
+    ("cache-cdn", "cache", "CDN",
+     "정적 자산·API 응답을 사용자 가까운 엣지 노드에 캐시해 지연을 줄이는 분산 네트워크.",
+     "이미지·JS·CSS는 CDN, 개인화 API는 CDN bypass 또는 private cache."),
+
+    # Concurrency
+    ("concurrency-race", "concurrency", "레이스 컨디션 (Race Condition)",
+     "여러 스레드/프로세스가 공유 데이터에 접근하고, 실행 순서에 따라 결과가 달라지는 버그.",
+     "잔고 100에서 두 요청이 동시에 80을 만들면 최종 60이 아닌 80이 될 수 있다. 락·원자 연산으로 해결."),
+    ("concurrency-lock", "concurrency", "낙관적 락 vs 비관적 락",
+     "비관적 락은 접근 전에 선점하고, 낙관적 락은 버전(version)으로 변경 충돌을 사후에 감지한다.",
+     "충돌이 드물면 낙관적(버전 컬럼), 잦으면 비관적(SELECT FOR UPDATE)이 유리하다."),
+    ("concurrency-semaphore", "concurrency", "세마포어 / 뮤텍스",
+     "뮤텍스는 상호 배제(1개 허용)를 위한 락, 세마포어는 N개 동시 접근을 제한하는 카운터다.",
+     "DB 커넥션 풀 크기 제한이 세마포어의 전형적 사용."),
+    ("concurrency-thread", "concurrency", "스레드 vs 프로세스",
+     "프로세스는 독립 메모리 공간, 스레드는 프로세스 내 공유 메모리. 스레드는 가볍지만 동기화 책임이 크다.",
+     "자바 톰캣은 스레드 풀로 요청 처리. Node.js는 이벤트 루프 기반 단일 스레드 + 논블로킹 I/O."),
+    ("concurrency-pool", "concurrency", "커넥션 풀 / 스레드 풀",
+     "비싼 자원(DB 연결, 스레드)을 미리 만들어 재사용해 생성 비용과 지연을 줄이는 패턴.",
+     "풀이 작으면 대기, 크면 DB에 과부하. 모니터링으로 적정 크기를 찾는다."),
+
+    # Architecture
+    ("arch-monolith-micro", "arch", "모놀리스 vs 마이크로서비스",
+     "모놀리스는 단일 배포 단위, 마이크로서비스는 기능별 독립 배포·스케일. 조직·규모에 따라 선택이 갈린다.",
+     "초기 스타트업은 모놀리스가 유리. 팀이 커지고 배포 독립성이 필요해지면 서비스 분리를 고려."),
+    ("arch-api-gateway", "arch", "API Gateway",
+     "클라이언트의 단일 진입점. 인증, 라우팅, 레이트리밋, 로깅 등을 중앙에서 처리한다.",
+     "Kong, AWS API Gateway, Spring Cloud Gateway 등."),
+    ("arch-load-balancer", "arch", "로드 밸런서",
+     "트래픽을 여러 서버 인스턴스에 분산해 가용성·처리량을 높이는 컴포넌트. L4/L7 계층으로 나뉜다.",
+     "라운드 로빈, 최소 연결, IP 해시 등 알고리즘. 헬스체크로 장애 인스턴스를 제외한다."),
+    ("arch-circuit-breaker", "arch", "서킷 브레이커",
+     "장애 의존 서비스 호출을 차단해 장애 확산을 막는 패턴. Closed → Open → Half-Open 상태 전이.",
+     "결제 서비스가 죽으면 즉시 실패 응답을 반환해 주문 서버가 함께 죽지 않도록 한다."),
+    ("arch-saga", "arch", "Saga 패턴",
+     "분산 트랜잭션을 보상 트랜잭션(compensation)으로 관리하는 패턴. 각 단계가 실패하면 이전 단계를 롤백한다.",
+     "예약 → 결제 → 배송. 결제 실패 시 예약 취소를 트리거."),
+    ("arch-event-driven", "arch", "이벤트 드리븐 아키텍처",
+     "서비스 간 직접 호출 대신 이벤트를 발행·구독해 결합도를 낮추는 아키텍처. 최종 일관성을 수용한다.",
+     "주문 생성 → OrderCreated 이벤트 → 재고·알림·분석 서비스가 각각 반응."),
+
+    # Messaging
+    ("mq-queue-topic", "mq", "큐 vs 토픽 (Pub/Sub)",
+     "큐는 하나의 소비자가 처리(점대점), 토픽/발행-구독은 여러 구독자가 모두 받는다.",
+     "작업 큐는 큐, 주문 이벤트를 여러 팀이 구독하면 토픽."),
+    ("mq-ack", "mq", "ACK / 재시도 / DLQ",
+     "ACK는 처리 완료 신호. 실패 시 재시도하고, 최대 횟수 초과분은 Dead Letter Queue로 분리해 수동 처리한다.",
+     "멱등 소비자로 만들지 않으면 재시도가 중복 처리를 만든다."),
+    ("mq-exactly-once", "mq", "At-least-once vs Exactly-once",
+     "At-least-once는 중복 가능, Exactly-once는 정확히 1회를 보장(비용 큼). 실무는 중복 허용 + 멱등 처리가 많다.",
+     "결제 중복을 막으려면 멱등 키(idempotency key)를 둔다."),
+    ("mq-kafka", "mq", "Kafka",
+     "고처리량·분산 스트리밍 플랫폼. 토픽을 파티션으로 나누고 컨슈머 그룹으로 병렬 소비한다.",
+     "로그 수집, 이벤트 스트리밍, CDC(변경 데이터 캡처)에 자주 사용."),
+
+    # API
+    ("api-versioning", "api", "API 버저닝",
+     "호환성을 깨는 변경 시 버전을 나눈다. 경로(/v1), 헤더, 쿼리 파라미터 방식이 있다.",
+     "/v1/users → /v2/users. 필드 추가는 보통 비파괴적이지만 타입 변경은 파괴적이다."),
+    ("api-pagination", "api", "페이지네이션",
+     "오프셋 방식은 구현이 쉽지만 대용량에서 느리고, 커서 방식은 안정적이지만 구현이 복잡하다.",
+     "무한 스크롤·목록 API는 커서 기반이 유리한 경우가 많다."),
+    ("api-rate-limit", "api", "레이트 리밋 (Rate Limiting)",
+     "단위 시간당 요청 수를 제한해 과부하·남용을 막는다. 토큰 버킷, 고정 윈도우, 슬라이딩 로그 등 알고리즘이 있다.",
+     "429 Too Many Requests 응답과 Retry-After 헤더를 함께 보낸다."),
+    ("api-hateoas", "api", "HATEOAS",
+     "응답에 관련 리소스 링크를 포함해 클라이언트가 하드코딩 없이 탐색하게 하는 REST 고도화 원칙.",
+     '{ "id": 1, "_links": { "orders": "/users/1/orders" } }'),
+    ("api-idempotency-key", "api", "Idempotency Key",
+     "클라이언트가 요청에 고유 키를 넣어, 재시도로 인한 중복 처리를 서버가 막게 하는 패턴. 결제 API의 표준.",
+     "같은 키로 두 번 POST해도 주문 1건만 생성된다."),
+]
+
+QUIZZES = [
+    ("q1", "http",
+     "같은 요청을 여러 번 보내도 서버 상태가 변하지 않는 HTTP 메서드 조합으로 옳은 것은?",
+     ["GET, PUT, DELETE", "POST, PUT, PATCH", "GET, POST, DELETE", "POST, PATCH, OPTIONS"],
+     0,
+     "GET·PUT·DELETE는 멱등이다. POST는 리소스를 생성하므로 비멱등, PATCH는 부분 수정이라 비멱등인 경우가 많다."),
+    ("q2", "db",
+     "N+1 문제를 가장 효과적으로 해결하는 방법은?",
+     ["모든 컬럼에 인덱스를 건다", "JOIN 또는 배치 로딩으로 쿼리 횟수를 줄인다", "트랜잭션 격리 수준을 올린다", "DB를 샤딩한다"],
+     1,
+     "N+1은 쿼리 횟수 문제이므로 JOIN, `IN` 절 배치 조회, ORM의 fetch join 등으로 완화한다."),
+    ("q3", "auth",
+     "비밀번호 저장에 가장 적절한 방식은?",
+     ["SHA-256 단독 해싱", "AES 암호화", "bcrypt/Argon2 해싱 + 솔트", "평문 + HTTPS"],
+     2,
+     "bcrypt·scrypt·Argon2는 의도적으로 느려 브루트포스를 막는다. SHA-256은 너무 빠르고, AES는 복호화 가능하므로 부적합."),
+    ("q4", "cache",
+     "캐시 스탬피드를 완화하는 방법이 아닌 것은?",
+     ["논리적 만료(soft TTL)", "요청 단위 락 / singleflight", "TTL을 더 짧게 설정", "백그라운드 선-갱신"],
+     2,
+     "TTL을 짧게 하면 만료가 더 자주 발생해 스탬피드가 오히려 잦아질 수 있다. 락·soft TTL·미리 갱신이 대안이다."),
+    ("q5", "concurrency",
+     "두 트랜잭션이 서로의 락을 기다리며 영원히 멈추는 상태를?",
+     ["레이스 컨디션", "데드락", "스타베이션", "캐시 스탬피드"],
+     1,
+     "데드락(교착) 상태. 락 획득 순서 통일, 타임아웃, 데드락 감지로 예방·해소한다."),
+    ("q6", "mq",
+     "메시지 처리에 실패해 재시도를 반복하는 메시지는 어디로 보내는 것이 일반적인가?",
+     ["원래 토픽으로 즉시 재발행", "Dead Letter Queue (DLQ)", "메인 DB 테이블", "로컬 파일"],
+     1,
+     "최대 재시도 초과분은 DLQ로 분리해 원인 분석·수동 재처리한다. 무한 재시도는 장애를 키운다."),
+    ("q7", "arch",
+     "장애가 난 의존 서비스 호출을 일시 차단해 장애 확산을 막는 패턴은?",
+     ["Saga", "CQRS", "서킷 브레이커", "Strangler Fig"],
+     2,
+     "서킷 브레이커는 Closed → Open → Half-Open으로 전이하며, 실패율이 높으면 호출을 차단한다."),
+    ("q8", "api",
+     "결제 API에서 클라이언트 재시도로 인한 중복 결제를 막는 가장 확실한 방법은?",
+     ["GET 메서드 사용", "Idempotency Key 부여", "응답을 캐시", "요청을 압축"],
+     1,
+     "클라이언트가 같은 Idempotency Key를 보내면 서버가 첫 결과를 재사용해 중복 처리를 막는다."),
+    ("q9", "http",
+     "CORS 오류가 발생하는 전형적인 상황은?",
+     ["같은 출처에서 API 호출", "다른 출처의 브라우저에서 API 호출 시 서버가 헤더로 허용하지 않음", "HTTPS 사용", "쿠키에 HttpOnly 설정"],
+     1,
+     "브라우저의 동일 출처 정책 때문에, 서버가 Access-Control-Allow-Origin 등으로 허용하지 않으면 차단된다."),
+    ("q10", "db",
+     "대용량 데이터를 여러 DB 서버에 수평 분할하는 기법은?",
+     ["복제 (Replication)", "샤딩 (Sharding)", "인덱싱", "뷰 (View)"],
+     1,
+     "샤딩은 데이터를 샤드 단위로 분산 저장한다. 복제는 같은 데이터를 여러 곳에 복사해 읽기 성능·가용성을 높인다."),
+]
+
+
+def seed(reset: bool = False) -> None:
+    init_db()
+    db = SessionLocal()
+    try:
+        if reset:
+            db.query(QuizQuestion).delete()
+            db.query(Concept).delete()
+            db.query(Category).delete()
+            db.commit()
+
+        for cat in CATEGORIES:
+            if not db.get(Category, cat["id"]):
+                db.add(Category(**cat))
+        db.commit()
+
+        for concept_id, category_id, term, definition, example in CONCEPTS:
+            if not db.get(Concept, concept_id):
+                db.add(
+                    Concept(
+                        id=concept_id,
+                        category_id=category_id,
+                        term=term,
+                        definition=definition,
+                        example=example,
+                    )
+                )
+        db.commit()
+
+        for quiz_id, category_id, question, choices, correct_index, explanation in QUIZZES:
+            if not db.get(QuizQuestion, quiz_id):
+                db.add(
+                    QuizQuestion(
+                        id=quiz_id,
+                        category_id=category_id,
+                        question=question,
+                        choices_json=json.dumps(choices, ensure_ascii=False),
+                        correct_index=correct_index,
+                        explanation=explanation,
+                    )
+                )
+        db.commit()
+
+        print(
+            f"Seeded: {db.query(Category).count()} categories, "
+            f"{db.query(Concept).count()} concepts, "
+            f"{db.query(QuizQuestion).count()} quiz questions"
+        )
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    seed()
