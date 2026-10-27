@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Backend Lab — 백엔드 핵심 개념 학습</title>
+  <meta name="description" content="HTTP, DB, 인증, 캐싱, 동시성, 아키텍처 등 백엔드 필수 개념을 카드·퀴즈·오답노트로 학습하세요." />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- 사이드바 -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">BL</div>
+        <div>
+          <div class="brand-name">Backend Lab</div>
+          <div class="brand-sub">핵심 개념 학습</div>
+        </div>
+      </div>
+
+      <nav class="nav" aria-label="주요 메뉴">
+        <button class="nav-item is-active" data-view="dashboard">
+          <span class="nav-icon">📊</span>
+          <span>대시보드</span>
+        </button>
+        <button class="nav-item" data-view="cards">
+          <span class="nav-icon">🃏</span>
+          <span>개념 카드</span>
+        </button>
+        <button class="nav-item" data-view="vocab">
+          <span class="nav-icon">📚</span>
+          <span>단어장</span>
+        </button>
+        <button class="nav-item" data-view="quiz">
+          <span class="nav-icon">✍️</span>
+          <span>퀴즈</span>
+        </button>
+        <button class="nav-item" data-view="wrong">
+          <span class="nav-icon">📝</span>
+          <span>오답노트</span>
+          <span class="badge" id="wrong-badge" hidden>0</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="progress-block">
+          <div class="progress-label">
+            <span>전체 진도</span>
+            <span id="progress-text">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+        </div>
+        <button class="btn-ghost" id="reset-progress" type="button">진도 초기화</button>
+      </div>
+    </aside>
+
+    <!-- 메인 -->
+    <main class="main">
+      <!-- 헤더 -->
+      <header class="topbar">
+        <div>
+          <h1 id="view-title">대시보드</h1>
+          <p id="view-desc" class="view-desc">백엔드 핵심 개념 학습 현황을 한눈에 확인하세요.</p>
+        </div>
+        <div class="topbar-actions">
+          <div class="chip chip-soft" id="today-stats">오늘 0문항</div>
+        </div>
+      </header>
+
+      <!-- 대시보드 -->
+      <section class="view is-active" id="view-dashboard">
+        <div class="stat-grid">
+          <article class="stat-card">
+            <div class="stat-icon">🃏</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-total-concepts">0</div>
+              <div class="stat-label">전체 개념</div>
+            </div>
+          </article>
+          <article class="stat-card">
+            <div class="stat-icon is-green">✅</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-known">0</div>
+              <div class="stat-label">외운 개념</div>
+            </div>
+          </article>
+          <article class="stat-card">
+            <div class="stat-icon is-amber">✍️</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-quiz-acc">—</div>
+              <div class="stat-label">퀴즈 정답률</div>
+            </div>
+          </article>
+          <article class="stat-card">
+            <div class="stat-icon is-red">📝</div>
+            <div class="stat-body">
+              <div class="stat-value" id="stat-wrong">0</div>
+              <div class="stat-label">오답</div>
+            </div>
+          </article>
+        </div>
+
+        <div class="panel-row">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>카테고리 진도</h2>
+              <span class="muted">카드 기준</span>
+            </div>
+            <div class="category-progress" id="category-progress"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>오늘의 학습</h2>
+              <span class="muted">바로 시작</span>
+            </div>
+            <div class="quick-actions">
+              <button class="quick-card" data-action="start-cards">
+                <div class="quick-icon">🃏</div>
+                <div>
+                  <div class="quick-title">개념 카드 학습</div>
+                  <div class="quick-sub">모르는 것만 골라 외우기</div>
+                </div>
+              </button>
+              <button class="quick-card" data-action="start-quiz">
+                <div class="quick-icon">✍️</div>
+                <div>
+                  <div class="quick-title">퀴즈 풀기</div>
+                  <div class="quick-sub">10문제 랜덤</div>
+                </div>
+              </button>
+              <button class="quick-card" data-action="start-wrong">
+                <div class="quick-icon">📝</div>
+                <div>
+                  <div class="quick-title">오답 복습</div>
+                  <div class="quick-sub">틀린 문제 다시 풀기</div>
+                </div>
+              </button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- 개념 카드 -->
+      <section class="view" id="view-cards">
+        <div class="toolbar">
+          <div class="segmented" id="card-filter">
+            <button class="seg is-active" data-filter="all">전체</button>
+            <button class="seg" data-filter="unknown">모르는 것</button>
+            <button class="seg" data-filter="known">외운 것</button>
+          </div>
+          <select class="select" id="card-category" aria-label="카테고리 필터">
+            <option value="all">모든 카테고리</option>
+          </select>
+          <div class="toolbar-right">
+            <span class="muted" id="card-counter">1 / 1</span>
+            <button class="btn-icon" id="card-shuffle" type="button" title="셔플">🔀</button>
+          </div>
+        </div>
+
+        <div class="flashcard-stage">
+          <div class="flashcard" id="flashcard" tabindex="0" role="button" aria-label="카드를 눌러 뒤집기">
+            <div class="flashcard-inner">
+              <div class="flashcard-face flashcard-front">
+                <div class="card-meta">
+                  <span class="chip" id="card-category-chip">카테고리</span>
+                  <span class="chip chip-soft" id="card-status-chip">학습 중</span>
+                </div>
+                <h2 class="card-term" id="card-term">용어</h2>
+                <p class="card-hint">카드를 클릭하면 정의가 나옵니다</p>
+              </div>
+              <div class="flashcard-face flashcard-back">
+                <div class="card-meta">
+                  <span class="chip" id="card-category-chip-back">카테고리</span>
+                </div>
+                <h3 class="card-def-label">정의</h3>
+                <p class="card-definition" id="card-definition">정의</p>
+                <div class="card-example" id="card-example-wrap">
+                  <div class="card-example-label">예시</div>
+                  <p id="card-example">예시</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flashcard-controls">
+            <button class="btn btn-secondary" id="card-prev" type="button">← 이전</button>
+            <div class="know-actions">
+              <button class="btn btn-danger" id="card-unknown" type="button">모르겠어요</button>
+              <button class="btn btn-success" id="card-known" type="button">외웠어요</button>
+            </div>
+            <button class="btn btn-secondary" id="card-next" type="button">다음 →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 단어장 -->
+      <section class="view" id="view-vocab">
+        <div class="toolbar">
+          <input class="search" id="vocab-search" type="search" placeholder="용어, 정의 검색…" />
+          <select class="select" id="vocab-category" aria-label="카테고리 필터">
+            <option value="all">모든 카테고리</option>
+          </select>
+          <div class="toolbar-right">
+            <span class="muted" id="vocab-count">0개</span>
+          </div>
+        </div>
+        <div class="vocab-list" id="vocab-list"></div>
+      </section>
+
+      <!-- 퀴즈 -->
+      <section class="view" id="view-quiz">
+        <!-- 시작 화면 -->
+        <div id="quiz-start" class="quiz-start">
+          <div class="hero-card">
+            <div class="hero-icon">✍️</div>
+            <h2>백엔드 개념 퀴즈</h2>
+            <p>개념 카드와 심화 문항에서 무작위로 출제됩니다.<br />틀린 문제는 자동으로 오답노트에 저장돼요.</p>
+            <div class="quiz-options">
+              <label class="field">
+                <span>문항 수</span>
+                <select id="quiz-size">
+                  <option value="5">5문제</option>
+                  <option value="10" selected>10문제</option>
+                  <option value="15">15문제</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>카테고리</span>
+                <select id="quiz-category">
+                  <option value="all">전체</option>
+                </select>
+              </label>
+            </div>
+            <button class="btn btn-primary btn-lg" id="quiz-start-btn" type="button">퀴즈 시작</button>
+          </div>
+        </div>
+
+        <!-- 풀이 화면 -->
+        <div id="quiz-play" class="quiz-play" hidden>
+          <div class="quiz-progress-row">
+            <div class="progress-bar">
+              <div class="progress-fill" id="quiz-progress-fill"></div>
+            </div>
+            <span class="muted" id="quiz-progress-text">1 / 10</span>
+          </div>
+
+          <div class="quiz-card">
+            <div class="card-meta">
+              <span class="chip" id="quiz-category-chip">카테고리</span>
+              <span class="chip chip-soft" id="quiz-type-chip">객관식</span>
+            </div>
+            <h2 class="quiz-question" id="quiz-question">문제</h2>
+            <div class="quiz-choices" id="quiz-choices"></div>
+            <div class="quiz-feedback" id="quiz-feedback" hidden></div>
+            <div class="quiz-actions">
+              <button class="btn btn-primary" id="quiz-next-btn" type="button" hidden>다음 문제</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 결과 화면 -->
+        <div id="quiz-result" class="quiz-result" hidden>
+          <div class="hero-card">
+            <div class="result-score" id="result-score">0</div>
+            <div class="result-label">정답</div>
+            <p class="result-summary" id="result-summary"></p>
+            <div class="result-actions">
+              <button class="btn btn-primary" id="quiz-retry" type="button">다시 풀기</button>
+              <button class="btn btn-secondary" id="quiz-goto-wrong" type="button">오답노트 보기</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 오답노트 -->
+      <section class="view" id="view-wrong">
+        <div class="toolbar">
+          <div class="segmented" id="wrong-filter">
+            <button class="seg is-active" data-filter="all">전체</button>
+            <button class="seg" data-filter="open">미해결</button>
+            <button class="seg" data-filter="mastered">정복 완료</button>
+          </div>
+          <div class="toolbar-right">
+            <span class="muted" id="wrong-count">0개</span>
+            <button class="btn btn-secondary" id="wrong-review-btn" type="button">오답 퀴즈</button>
+            <button class="btn-ghost" id="wrong-clear" type="button">해결한 것 비우기</button>
+          </div>
+        </div>
+        <div class="wrong-list" id="wrong-list"></div>
+        <div class="empty" id="wrong-empty" hidden>
+          <div class="empty-icon">🎉</div>
+          <h3>오답이 없습니다</h3>
+          <p>퀴즈를 풀면 틀린 문제가 여기에 쌓입니다.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
